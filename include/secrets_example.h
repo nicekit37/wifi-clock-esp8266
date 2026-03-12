@@ -20,3 +20,6 @@
 #define WEATHER_API_KEY  "YOUR_OPENWEATHER_API_KEY"
 #define WEATHER_CITY     "YOUR_CITY_NAME"
 
+// URL API воздушной тревоги по умолчанию
+#define ALERT_API_URL    "http://ubilling.net.ua/aerialalerts/"
+

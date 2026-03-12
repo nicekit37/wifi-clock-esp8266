@@ -1260,7 +1260,7 @@ void updateAlert() {
   // Используем API ubilling.net.ua/aerialalerts/ (рабочий API для повітряних тривог)
   // Документация: https://wiki.ubilling.net.ua/doku.php?id=aerialalertsapi
   // Формат ответа: {"states": {"Одеська": {"alertnow": true/false}, ...}}
-  String url = "http://ubilling.net.ua/aerialalerts/";
+  String url = ALERT_API_URL;
   
   Serial.print("[ALERT] Запрос к API: ");
   Serial.println(url);
