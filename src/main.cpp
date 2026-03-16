@@ -630,12 +630,13 @@ void displayTime() {
     // Центр иконки совпадает с центром текста
     int iconX = textCenterX - iconSize / 2;
     
-    // Обновляем иконку погоды только если она изменилась
-    if (weather.icon != lastWeatherIcon) {
+    // Обновляем иконку и подпись погоды только если она изменилась
+    if (weather.icon != lastWeatherIcon || weatherDesc != lastTempStr) {
       // Стираем старую иконку и подпись (увеличенная область, учитывая возможное смещение)
       // Учитываем, что текст может быть шире иконки
-      int clearWidth = (maxTextWidth > iconSize) ? maxTextWidth + 10 : iconSize + 10;
-      tft.fillRect(iconX - 5, iconY, clearWidth, 78, TFT_BLACK);
+      int clearWidth = (maxTextWidth > iconSize) ? maxTextWidth + 14 : iconSize + 14;
+      // По высоте захватываем и область иконки, и область подписи с запасом
+      tft.fillRect(iconX - 7, iconY - 4, clearWidth, iconSize + 30, TFT_BLACK);
       
       // Рисуем иконку (увеличенную)
       drawWeatherIcon(weather.icon, iconX, iconY, iconSize);
@@ -643,7 +644,7 @@ void displayTime() {
       // Рисуем подпись под иконкой (крупнее)
       tft.setTextDatum(TC_DATUM); // Выравнивание по центру сверху
       tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      int textY = iconY + 53; // Под иконкой с отступом 4px
+      int textY = iconY + iconSize - 3; // Под иконкой с небольшим отступом
       tft.drawString(weatherDesc, textCenterX, textY);
       
       lastWeatherIcon = weather.icon; // Обновляем только если показываем погоду
@@ -660,8 +661,10 @@ void displayTime() {
       // Стираем старую температуру, символ градуса и букву C
       if (lastTempStr.length() > 0) {
         tft.setTextColor(TFT_BLACK, TFT_BLACK);
-        // Стираем текст, символ градуса и букву C (увеличенная область по высоте и ширине)
-        tft.fillRect(10, 88, 130, 36, TFT_BLACK);
+        // Стираем текст, символ градуса и букву C.
+        // Берём максимальную возможную ширину для строки вида "+123" + "°C".
+        // По вертикали захватываем запас сверху/снизу, чтобы не оставалось артефактов.
+        tft.fillRect(8, 84, 150, 44, TFT_BLACK);
       }
       
       // Рисуем новую температуру
