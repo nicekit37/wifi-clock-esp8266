@@ -141,6 +141,10 @@ void setup() {
       updateWeather();
       lastWeatherUpdate = millis();
     }
+
+    // Проверка OTA при старте (сразу после подключения к WiFi)
+    checkForOtaUpdate();
+    lastOtaCheck = millis();
   }
   
   // Запуск веб-сервера
@@ -908,6 +912,10 @@ void ensureWiFiConnected() {
       
       // Сдвигаем таймер проверки тревоги, чтобы сразу была актуальная информация
       lastAlertUpdate = millis();
+
+      // Проверка OTA сразу после восстановления WiFi
+      checkForOtaUpdate();
+      lastOtaCheck = millis();
     }
     
     return;
