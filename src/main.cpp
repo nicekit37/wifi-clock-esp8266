@@ -1010,7 +1010,10 @@ void checkForOtaUpdate() {
 
   Serial.println("[OTA] Проверка обновления прошивки...");
 
-  WiFiClient client;
+  // OTA_META_URL обычно HTTPS (raw.githubusercontent.com), поэтому используем TLS клиент.
+  // setInsecure() упрощает подключение (без CA/сертификатов); для максимальной безопасности можно добавить проверку сертификата.
+  WiFiClientSecure client;
+  client.setInsecure();
   HTTPClient http;
 
   if (!http.begin(client, OTA_META_URL)) {
@@ -1102,6 +1105,7 @@ void checkForOtaUpdate() {
     hideOtaScreen();
   });
 
+  // Прошивка тоже чаще всего будет скачиваться по HTTPS (GitHub Releases)
   t_httpUpdate_return ret = ESPhttpUpdate.update(client, binUrl);
 
   switch (ret) {
