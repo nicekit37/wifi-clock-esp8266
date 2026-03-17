@@ -99,7 +99,7 @@ struct AlertData {
 extern AlertData alert;
 
 // Константы
-#define FIRMWARE_VERSION "1.0.5"
+#define FIRMWARE_VERSION "1.0.6"
 
 // Функции
 void setTimeFont();      // Установка шрифта для времени

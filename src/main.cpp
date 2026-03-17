@@ -1061,7 +1061,31 @@ void checkForOtaUpdate() {
   Serial.print("[OTA] Доступная версия: ");
   Serial.println(latest);
 
-  if (latest == current) {
+  auto parsePart = [](const String& s, int part) -> int {
+    int start = 0;
+    for (int i = 0; i < part; i++) {
+      int dot = s.indexOf('.', start);
+      if (dot < 0) return 0;
+      start = dot + 1;
+    }
+    int end = s.indexOf('.', start);
+    String sub = (end < 0) ? s.substring(start) : s.substring(start, end);
+    return sub.toInt();
+  };
+  
+  auto cmpSemver = [&](const String& a, const String& b) -> int {
+    // return -1 if a<b, 0 if equal, 1 if a>b
+    int a0 = parsePart(a, 0), b0 = parsePart(b, 0);
+    if (a0 != b0) return (a0 < b0) ? -1 : 1;
+    int a1 = parsePart(a, 1), b1 = parsePart(b, 1);
+    if (a1 != b1) return (a1 < b1) ? -1 : 1;
+    int a2 = parsePart(a, 2), b2 = parsePart(b, 2);
+    if (a2 != b2) return (a2 < b2) ? -1 : 1;
+    return 0;
+  };
+  
+  int cmp = cmpSemver(latest, current);
+  if (cmp <= 0) {
     Serial.println("[OTA] Обновление не требуется");
     return;
   }

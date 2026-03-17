@@ -63,19 +63,28 @@ jobs:
             raise SystemExit(f"Unexpected tag format: {tag}")
           version = m.group(1)
 
+          # Copy built firmware into repo (stable OTA URL via raw.githubusercontent.com)
+          src_bin = Path(".pio/build/esp12e/firmware.bin")
+          if not src_bin.exists():
+            raise SystemExit("firmware.bin not found after build")
+          ota_dir = Path("ota")
+          ota_dir.mkdir(parents=True, exist_ok=True)
+          dst_bin = ota_dir / "firmware.bin"
+          dst_bin.write_bytes(src_bin.read_bytes())
+
           path = Path("ota/latest.json")
           path.parent.mkdir(parents=True, exist_ok=True)
 
           data = {
             "version": version,
-            "url": f"https://github.com/{repo}/releases/download/{tag}/firmware.bin",
+            "url": f"https://raw.githubusercontent.com/{repo}/main/ota/firmware.bin",
           }
           path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
           subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
           subprocess.check_call(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"])
 
-          subprocess.check_call(["git", "add", "ota/latest.json"])
+          subprocess.check_call(["git", "add", "ota/latest.json", "ota/firmware.bin"])
           if subprocess.call(["git", "diff", "--cached", "--quiet"]) == 0:
             print("[ota] latest.json unchanged, skipping commit")
             raise SystemExit(0)
