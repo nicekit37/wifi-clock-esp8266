@@ -1,0 +1,82 @@
+name: Build firmware & publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install platformio
+
+      - name: Build firmware (esp12e)
+        run: pio run -e esp12e
+
+      - name: Create GitHub Release and upload firmware.bin
+        uses: softprops/action-gh-release@v2
+        with:
+          files: .pio/build/esp12e/firmware.bin
+          generate_release_notes: true
+
+      - name: Update ota/latest.json on main
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          
+          tag = os.environ["TAG_NAME"]          # vX.Y.Z
+          repo = os.environ["REPO"]             # owner/name
+          m = re.match(r"^v(\d+\.\d+\.\d+)$", tag)
+          if not m:
+            raise SystemExit(f"Unexpected tag format: {tag}")
+          version = m.group(1)
+          
+          # Read current file if exists
+          path = Path("ota/latest.json")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          
+          data = {
+            "version": version,
+            "url": f"https://github.com/{repo}/releases/download/{tag}/firmware.bin",
+          }
+          path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          
+          # Commit to main
+          subprocess.check_call(["git", "config", "user.name", "github-actions[bot]"])
+          subprocess.check_call(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"])
+          
+          subprocess.check_call(["git", "fetch", "origin", "main"])
+          subprocess.check_call(["git", "checkout", "main"])
+          subprocess.check_call(["git", "pull", "--ff-only", "origin", "main"])
+          
+          subprocess.check_call(["git", "add", "ota/latest.json"])
+          # no-op if unchanged
+          if subprocess.call(["git", "diff", "--cached", "--quiet"]) == 0:
+            print("[ota] latest.json unchanged, skipping commit")
+            raise SystemExit(0)
+          
+          subprocess.check_call(["git", "commit", "-m", f"chore(ota): bump latest to {version}"])
+          subprocess.check_call(["git", "push", "origin", "main"])
+          print("[ota] Updated ota/latest.json on main")
+          PY
+

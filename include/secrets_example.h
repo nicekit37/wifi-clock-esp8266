@@ -23,3 +23,7 @@
 // URL API воздушной тревоги по умолчанию
 #define ALERT_API_URL    "http://ubilling.net.ua/aerialalerts/"
 
+// URL метаданных OTA-обновления (JSON c версией и ссылкой на .bin)
+// Например: https://raw.githubusercontent.com/<user>/wifi-clock-esp8266/main/ota/latest.json
+#define OTA_META_URL     "https://raw.githubusercontent.com/<user>/wifi-clock-esp8266/main/ota/latest.json"
+

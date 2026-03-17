@@ -5,6 +5,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
+#include <ESP8266httpUpdate.h>
 #include <WiFiClient.h>
 #include <time.h>
 #include <TFT_eSPI.h>
@@ -47,7 +48,13 @@ extern const unsigned long alertUpdateInterval;
 extern const unsigned long wifiReconnectInterval;
 extern unsigned long lastWifiReconnectAttempt;
 
+extern const unsigned long otaCheckInterval;
+extern unsigned long lastOtaCheck;
+
 extern bool ntpInitialized;
+
+// Кэш для подписи текущей погоды (для корректной перерисовки)
+extern String lastWeatherDesc;
 
 // Структура данных погоды
 struct WeatherData {
@@ -107,5 +114,6 @@ void handlePostConfig();
 void handleGetStatus();
 
 void ensureWiFiConnected();
+void checkForOtaUpdate();
 
 #endif // MAIN_H
