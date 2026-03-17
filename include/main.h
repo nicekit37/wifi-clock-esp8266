@@ -11,10 +11,13 @@
 #include <TFT_eSPI.h>
 #include <ArduinoJson.h>
 
-// Секреты (Wi-Fi, API ключи) объявляются в include/secrets.h,
-// который не добавляется в git. Для сборки создайте secrets.h,
-// скопировав include/secrets_example.h и подставив свои значения.
-#include "secrets.h"
+// Секреты (Wi‑Fi, API ключи) живут в include/secrets.h (не коммитится).
+// Для сборки из репозитория (CI/GitHub Actions) используем fallback на secrets_example.h.
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#else
+  #include "secrets_example.h"
+#endif
 
 // WiFi настройки
 extern String wifiSSID;
@@ -88,7 +91,7 @@ struct AlertData {
 extern AlertData alert;
 
 // Константы
-#define FIRMWARE_VERSION "1.0.2"
+#define FIRMWARE_VERSION "1.0.4"
 
 // Функции
 void setTimeFont();      // Установка шрифта для времени
