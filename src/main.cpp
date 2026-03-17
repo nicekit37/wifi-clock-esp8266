@@ -65,6 +65,9 @@ String lastWeatherIcon = "";
 String lastWeatherDesc = "";
 bool lastWifiState = false;
 
+bool otaInProgress = false;
+int otaProgressPercent = 0;
+
 // Флаг первого запуска
 #define RTC_FLAG_ADDR 64
 
@@ -232,6 +235,56 @@ void setHumidityFont() {
   // tft.loadFont("/fonts/NotoSans12");
   // tft.setFreeFont(FF16);
   tft.setTextSize(2); // 24 pt - стандартный шрифт
+}
+
+void showOtaScreen(const String& title, const String& line2) {
+  // Полноэкранная индикация OTA. Используем стандартный шрифт, чтобы гарантировать наличие символов.
+  tft.unloadFont();
+  tft.setTextSize(2);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextDatum(TC_DATUM);
+  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.drawString(title, 120, 20);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawString(line2, 120, 55);
+  
+  // Рамка прогресс-бара
+  tft.drawRect(20, 110, 200, 20, TFT_DARKGREY);
+}
+
+void drawOtaProgress(int percent) {
+  if (percent < 0) percent = 0;
+  if (percent > 100) percent = 100;
+  
+  // Заполнение прогресс-бара
+  int fillW = (200 - 2) * percent / 100;
+  tft.fillRect(21, 111, 198, 18, TFT_BLACK);
+  if (fillW > 0) {
+    tft.fillRect(21, 111, fillW, 18, TFT_GREEN);
+  }
+  
+  // Проценты
+  tft.setTextDatum(TC_DATUM);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.fillRect(70, 140, 100, 24, TFT_BLACK);
+  tft.drawString(String(percent) + "%", 120, 140);
+}
+
+void hideOtaScreen() {
+  // После OTA возвращаемся к обычной отрисовке (экран будет обновлён в следующем цикле displayTime()).
+  tft.fillScreen(TFT_BLACK);
+  lastHour = -1;
+  lastMinute = -1;
+  lastSecond = -1;
+  lastDay = -1;
+  lastWeekday = -1;
+  lastDateStr = "";
+  lastTempStr = "";
+  lastHumStr = "";
+  lastWeatherIcon = "";
+  lastWeatherDesc = "";
+  lastWifiState = false;
 }
 
 void displayInit() {
@@ -1014,6 +1067,41 @@ void checkForOtaUpdate() {
   Serial.print("[OTA] URL прошивки: ");
   Serial.println(binUrl);
 
+  otaInProgress = true;
+  otaProgressPercent = 0;
+  showOtaScreen("OTA UPDATE", "Downloading...");
+  drawOtaProgress(0);
+
+  ESPhttpUpdate.onStart([]() {
+    otaInProgress = true;
+    otaProgressPercent = 0;
+    showOtaScreen("OTA UPDATE", "Start...");
+    drawOtaProgress(0);
+  });
+
+  ESPhttpUpdate.onProgress([](int cur, int total) {
+    if (total <= 0) return;
+    int p = (cur * 100) / total;
+    if (p < 0) p = 0;
+    if (p > 100) p = 100;
+    if (p != otaProgressPercent) {
+      otaProgressPercent = p;
+      drawOtaProgress(p);
+    }
+  });
+
+  ESPhttpUpdate.onEnd([]() {
+    drawOtaProgress(100);
+    showOtaScreen("OTA UPDATE", "Reboot...");
+  });
+
+  ESPhttpUpdate.onError([](int err) {
+    otaInProgress = false;
+    showOtaScreen("OTA ERROR", String("Code ") + String(err));
+    delay(2000);
+    hideOtaScreen();
+  });
+
   t_httpUpdate_return ret = ESPhttpUpdate.update(client, binUrl);
 
   switch (ret) {
@@ -1022,10 +1110,16 @@ void checkForOtaUpdate() {
       Serial.println(ESPhttpUpdate.getLastError());
       Serial.print("[OTA] Сообщение: ");
       Serial.println(ESPhttpUpdate.getLastErrorString());
+      otaInProgress = false;
+      showOtaScreen("OTA ERROR", "Update failed");
+      delay(2000);
+      hideOtaScreen();
       break;
 
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("[OTA] Обновление не найдено (NO_UPDATES)");
+      otaInProgress = false;
+      hideOtaScreen();
       break;
 
     case HTTP_UPDATE_OK:

@@ -59,6 +59,14 @@ extern bool ntpInitialized;
 // Кэш для подписи текущей погоды (для корректной перерисовки)
 extern String lastWeatherDesc;
 
+// OTA индикация на дисплее
+extern bool otaInProgress;
+extern int otaProgressPercent;
+
+void showOtaScreen(const String& title, const String& line2);
+void drawOtaProgress(int percent);
+void hideOtaScreen();
+
 // Структура данных погоды
 struct WeatherData {
   float temperature;
@@ -91,7 +99,7 @@ struct AlertData {
 extern AlertData alert;
 
 // Константы
-#define FIRMWARE_VERSION "1.0.4"
+#define FIRMWARE_VERSION "1.0.5"
 
 // Функции
 void setTimeFont();      // Установка шрифта для времени
