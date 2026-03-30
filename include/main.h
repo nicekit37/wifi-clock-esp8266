@@ -107,7 +107,7 @@ struct AlertData {
 extern AlertData alert;
 
 // Константы
-#define FIRMWARE_VERSION "1.0.21"
+#define FIRMWARE_VERSION "1.0.23"
 
 // Функции
 /** После заставки/встроенного GLCD: сброс textFont/textSize перед loadFont(Robot*). */

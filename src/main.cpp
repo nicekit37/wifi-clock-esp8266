@@ -590,7 +590,7 @@ void displayTime() {
       if (lastMinDisplayed[0] != '\0') {
         setTimeFont();
         tft.setTextDatum(ML_DATUM);
-        eraseDiffSmoothGlyphs(String(lastMinDisplayed), String(minStr), 93, timeY, 2, 2, 3, 2);
+        eraseDiffSmoothGlyphs(String(lastMinDisplayed), String(minStr), 93, timeY, 2, 2, 2, 0);
       }
       setTimeFont();
       tft.setTextDatum(ML_DATUM);
@@ -735,6 +735,7 @@ void displayTime() {
   }
   
   // Вторая строка: Дата в формате "Пн Вт Ср 27 Пт Сб Вс" (Robot20), влево напротив времени
+  const int dateRowY = 67;
   setDateFont(); // Установка шрифта Robot20 для даты
   tft.setTextDatum(ML_DATUM); // Выравнивание слева
   
@@ -769,11 +770,11 @@ void displayTime() {
       tft.setTextDatum(ML_DATUM);
       int dh = tft.fontHeight();
       if (dh < 8) dh = 22;
-      tft.fillRect(6, 67 - dh / 2 - 3, 228, dh + 8, TFT_BLACK);
+      tft.fillRect(6, dateRowY - dh / 2 - 3, 228, dh + 8, TFT_BLACK);
     }
     
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.drawString(dateStr, 10, 67);
+    tft.drawString(dateStr, 10, dateRowY);
     lastDateStr = dateStr;
     lastDay = timeinfo.tm_mday;
     lastWeekday = timeinfo.tm_wday;
@@ -781,7 +782,7 @@ void displayTime() {
   
   // Иконка погоды справа с подписью, по центру между датой и температурой (крупнее, отступ от края)
   if (weatherEnabled && weather.valid) {
-    // Дата на Y=70, температура на Y=100, центр между ними: Y=85
+    // Дата на Y=67, температура на Y=100, центр между ними: Y≈85
     // Иконка 56x56 + подпись ~18px + отступ 4px = ~78px общая высота
     // Центр блока на Y=85, значит верх иконки на Y=85-39≈46, опущено на 7px = 53
     int iconSize = 56; // Увеличена с 48 до 56
