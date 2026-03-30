@@ -27,6 +27,8 @@ extern String wifiPassword;
 extern String ntpServer;
 extern long gmtOffset_sec;
 extern int daylightOffset_sec;
+/** true: Europe/Eastern EU DST (EET↔EEST) через POSIX TZ; false: фиксированные gmtOffset_sec и daylightOffset_sec */
+extern bool dstAuto;
 
 // Погода настройки
 extern String weatherAPIKey;
@@ -99,7 +101,7 @@ struct AlertData {
 extern AlertData alert;
 
 // Константы
-#define FIRMWARE_VERSION "1.0.6"
+#define FIRMWARE_VERSION "1.0.7"
 
 // Функции
 void setTimeFont();      // Установка шрифта для времени

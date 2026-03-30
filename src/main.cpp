@@ -13,8 +13,9 @@ String wifiPassword = WIFI_PASSWORD;
 
 // NTP настройки (можно изменить через веб-интерфейс)
 String ntpServer = NTP_SERVER;
-long gmtOffset_sec = 7200;       // GMT+2 (Украина, зима)
+long gmtOffset_sec = 7200;       // GMT+2 (Украина, зима), если dstAuto == false
 int daylightOffset_sec = 0;
+bool dstAuto = true;             // автоматический переход летнее/зимнее (EET/EEST, правила ЕС)
 
 // Погода настройки (можно изменить через веб-интерфейс)
 String weatherAPIKey = WEATHER_API_KEY;  // Получите на openweathermap.org
@@ -353,11 +354,27 @@ void setupNTP() {
   Serial.println("\n--- Настройка NTP ---");
   Serial.print("[NTP] Сервер: ");
   Serial.println(ntpServer);
-  Serial.print("[NTP] Часовой пояс: GMT");
-  Serial.print((gmtOffset_sec >= 0 ? "+" : ""));
-  Serial.println(gmtOffset_sec / 3600);
-  
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer.c_str());
+  if (dstAuto) {
+    Serial.println("[NTP] Режим: автоматическое летнее/зимнее время (EET/EEST, POSIX TZ)");
+  } else {
+    Serial.print("[NTP] Часовой пояс: GMT");
+    Serial.print((gmtOffset_sec >= 0 ? "+" : ""));
+    Serial.print(gmtOffset_sec / 3600);
+    if (daylightOffset_sec != 0) {
+      Serial.print(", летнее смещение +");
+      Serial.print(daylightOffset_sec / 3600);
+      Serial.println(" ч");
+    } else {
+      Serial.println();
+    }
+  }
+
+  if (dstAuto) {
+    // Последнее воскресенье марта 03:00 → летнее (EEST), последнее воскресенье октября 04:00 → зима (EET)
+    configTime("EET-2EEST,M3.5.0/3,M10.5.0/4", ntpServer.c_str());
+  } else {
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer.c_str());
+  }
   
   // Неблокирующая проверка синхронизации (проверяем сразу, без долгих задержек)
   time_t now = time(nullptr);
@@ -1694,7 +1711,8 @@ void handleRoot() {
   html += "<label>Пароль:</label><input type='password' name='password' id='password'>";
   html += "<h2>NTP</h2>";
   html += "<label>Сервер:</label><input type='text' name='ntpServer' id='ntpServer'>";
-  html += "<label>Часовой пояс (секунды):</label><input type='number' name='gmtOffset' id='gmtOffset'>";
+  html += "<label>Автоматическое летнее/зимнее время (EET/EEST):</label><input type='checkbox' name='dstAuto' id='dstAuto'>";
+  html += "<label>Часовой пояс (секунды, если авто выкл.):</label><input type='number' name='gmtOffset' id='gmtOffset'>";
   html += "<h2>Погода</h2>";
   html += "<label>Включить погоду:</label><input type='checkbox' name='weatherEnabled' id='weatherEnabled'>";
   html += "<label>API ключ:</label><input type='text' name='weatherAPIKey' id='weatherAPIKey'>";
@@ -1707,6 +1725,7 @@ void handleRoot() {
   html += "document.getElementById('ssid').value=d.ssid||'';";
   html += "document.getElementById('password').value='';";
   html += "document.getElementById('ntpServer').value=d.ntpServer||'';";
+  html += "document.getElementById('dstAuto').checked=d.dstAuto!==false;";
   html += "document.getElementById('gmtOffset').value=d.gmtOffset||0;";
   html += "document.getElementById('weatherEnabled').checked=d.weatherEnabled||false;";
   html += "document.getElementById('weatherAPIKey').value=d.weatherAPIKey||'';";
@@ -1716,6 +1735,7 @@ void handleRoot() {
   html += "e.preventDefault();";
   html += "const formData=new FormData(this);";
   html += "const data={};formData.forEach((v,k)=>data[k]=v);";
+  html += "data.dstAuto=document.getElementById('dstAuto').checked;";
   html += "data.weatherEnabled=document.getElementById('weatherEnabled').checked;";
   html += "fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})";
   html += ".then(r=>r.json()).then(d=>{document.getElementById('status').innerHTML='<p style=color:green>Сохранено! Перезагрузка...</p>';setTimeout(()=>location.reload(),2000);});";
@@ -1733,6 +1753,7 @@ void handleGetConfig() {
   doc["ssid"] = wifiSSID;
   doc["ntpServer"] = ntpServer;
   doc["gmtOffset"] = gmtOffset_sec;
+  doc["dstAuto"] = dstAuto;
   doc["weatherEnabled"] = weatherEnabled;
   doc["weatherAPIKey"] = weatherAPIKey;
   doc["weatherCity"] = weatherCity;
@@ -1757,13 +1778,14 @@ void handlePostConfig() {
   }
   if (doc.containsKey("ntpServer")) ntpServer = doc["ntpServer"].as<String>();
   if (doc.containsKey("gmtOffset")) gmtOffset_sec = doc["gmtOffset"].as<long>();
+  if (doc.containsKey("dstAuto")) dstAuto = doc["dstAuto"].as<bool>();
   if (doc.containsKey("weatherEnabled")) weatherEnabled = doc["weatherEnabled"].as<bool>();
   if (doc.containsKey("weatherAPIKey")) weatherAPIKey = doc["weatherAPIKey"].as<String>();
   if (doc.containsKey("weatherCity")) weatherCity = doc["weatherCity"].as<String>();
   
   // Переподключение к WiFi если изменился SSID
   bool wifiChanged = (WiFi.SSID() != wifiSSID);
-  bool ntpChanged = doc.containsKey("ntpServer") || doc.containsKey("gmtOffset");
+  bool ntpChanged = doc.containsKey("ntpServer") || doc.containsKey("gmtOffset") || doc.containsKey("dstAuto");
   bool weatherChanged = doc.containsKey("weatherEnabled") || doc.containsKey("weatherAPIKey") || doc.containsKey("weatherCity");
   
   if (wifiChanged) {
