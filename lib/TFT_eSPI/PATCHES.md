@@ -12,6 +12,6 @@
 
 ## Настройки дисплея
 
-Пины и драйвер: `User_Setup.h` в этой же папке. В нём должно быть **`#define SMOOTH_FONT`**, иначе не будут доступны `loadFont()` / `unloadFont()` для шрифтов Robot.
+**Источник правды:** `include/User_Setup.h` (PlatformIO подхватывает `<User_Setup.h>` из `include/`). В `lib/TFT_eSPI/User_Setup.h` и `lib/User_Setup.h` — редиректы на него.
 
-Корневой `lib/User_Setup.h` — тонкая обёртка для совместимости с документацией проекта.
+Обязательно **`#define SMOOTH_FONT`** для `loadFont()` / `unloadFont()` (Robot).

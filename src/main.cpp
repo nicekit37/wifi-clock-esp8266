@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <sys/time.h>
 #include "main.h"
 #include <LittleFS.h>
 #include <math.h>
@@ -32,7 +33,7 @@ bool timeSynced = false;
 unsigned long lastUpdateTime = 0;
 unsigned long lastWeatherUpdate = 0;
 unsigned long lastAlertUpdate = 0;
-const unsigned long updateInterval = 1000; // Обновление времени каждую секунду
+const unsigned long updateInterval = 500; // Дисплей и двоеточие: 2 раза/с (полсекунды вкл/выкл)
 const unsigned long weatherUpdateInterval = 600000; // Обновление погоды каждые 10 минут
 const unsigned long alertUpdateInterval = 30000; // Обновление статуса тревоги каждые 30 секунд
 const unsigned long wifiReconnectInterval = 30000; // Пауза между попытками переподключения к WiFi (мс)
@@ -64,6 +65,8 @@ String lastTempStr = "";
 String lastHumStr = "";
 String lastWeatherIcon = "";
 String lastWeatherDesc = "";
+String lastForecastStr = "";
+String lastHumNumStr = "";
 bool lastWifiState = false;
 
 bool otaInProgress = false;
@@ -154,8 +157,13 @@ void setup() {
   // Запуск веб-сервера
   setupWebServer();
   
-  // Очистка экрана и начальная отрисовка
-  tft.fillScreen(TFT_BLACK);
+  // Не затираем экран: иначе после displayVersion() остаётся чёрный экран до тех пор,
+  // пока NTP не даст валидное время (displayTime() тогда сразу return).
+  if (time(nullptr) > 1000000000) {
+    displayTime();
+  } else {
+    displayVersion();
+  }
   
   Serial.println("\n========================================");
   Serial.println("Инициализация завершена");
@@ -177,7 +185,7 @@ void loop() {
   // Обработка веб-сервера
   server.handleClient();
   
-  // Обновление времени каждую секунду
+  // Обновление времени на дисплее (500 мс — для мигания двоеточия)
   if (now - lastUpdateTime >= updateInterval) {
     // Проверяем синхронизацию времени, если WiFi подключен и NTP инициализирован
     if (wifiConnected && ntpInitialized) {
@@ -207,40 +215,47 @@ void loop() {
   delay(10);
 }
 
+void resetBuiltinTextBeforeSmoothFont() {
+  tft.setTextFont(1);
+  tft.setTextSize(1);
+}
+
+void clearScreenAfterSplashForClockUi() {
+  tft.unloadFont();
+  resetBuiltinTextBeforeSmoothFont();
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+}
+
 // Функции для установки шрифтов (легко заменить на сглаженные шрифты в будущем)
 void setTimeFont() {
-  // Выгружаем предыдущий шрифт перед загрузкой нового
   tft.unloadFont();
-  // Используем шрифт Robot60 из заголовочного файла (только для времени)
+  resetBuiltinTextBeforeSmoothFont();
   tft.loadFont(Robot60);
 }
 
 void setDateFont() {
-  // Выгружаем предыдущий шрифт перед загрузкой нового
   tft.unloadFont();
-  // Используем шрифт Robot20 для даты
+  resetBuiltinTextBeforeSmoothFont();
   tft.loadFont(Robot20);
 }
 
 void setTempFont() {
-  // Выгружаем предыдущий шрифт перед загрузкой нового
   tft.unloadFont();
-  // Используем шрифт Robot35 для температуры и влажности
+  resetBuiltinTextBeforeSmoothFont();
   tft.loadFont(Robot35);
 }
 
 void setHumidityFont() {
-  // Выгружаем предыдущий шрифт перед загрузкой нового
   tft.unloadFont();
-  // Для анти-алиасинга: раскомментировать и загрузить файл шрифта
-  // tft.loadFont("/fonts/NotoSans12");
-  // tft.setFreeFont(FF16);
-  tft.setTextSize(2); // 24 pt - стандартный шрифт
+  tft.setTextFont(1);
+  tft.setTextSize(2);
 }
 
 void showOtaScreen(const String& title, const String& line2) {
   // Полноэкранная индикация OTA. Используем стандартный шрифт, чтобы гарантировать наличие символов.
   tft.unloadFont();
+  tft.setTextFont(1);
   tft.setTextSize(2);
   tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(TC_DATUM);
@@ -273,8 +288,10 @@ void drawOtaProgress(int percent) {
 }
 
 void hideOtaScreen() {
-  // После OTA возвращаемся к обычной отрисовке (экран будет обновлён в следующем цикле displayTime()).
-  tft.fillScreen(TFT_BLACK);
+  // После OTA нельзя только заливать чёрным: при несинхронизированном времени displayTime()
+  // сразу return — экран остаётся пустым. Показываем заставку; при валидном времени
+  // следующий displayTime() перерисует часы (lastHour = -1).
+  displayVersion();
   lastHour = -1;
   lastMinute = -1;
   lastSecond = -1;
@@ -283,9 +300,32 @@ void hideOtaScreen() {
   lastDateStr = "";
   lastTempStr = "";
   lastHumStr = "";
+  lastHumNumStr = "";
   lastWeatherIcon = "";
   lastWeatherDesc = "";
+  lastForecastStr = "";
+  lastHumNumStr = "";
   lastWifiState = false;
+}
+
+void eraseDiffSmoothGlyphs(const String& oldStr, const String& newStr, int16_t x, int16_t y,
+  int8_t padXLeft, int8_t padXRight, int8_t padYTop, int8_t padYBottom) {
+  tft.setTextDatum(ML_DATUM);
+  int16_t oh = tft.fontHeight();
+  if (oh < 8) oh = 24;
+  int olen = oldStr.length();
+  int nlen = newStr.length();
+  int n = (olen > nlen) ? olen : nlen;
+  for (int i = 0; i < n; i++) {
+    uint8_t oc = (i < olen) ? (uint8_t)oldStr[i] : 0;
+    uint8_t nc = (i < nlen) ? (uint8_t)newStr[i] : 0;
+    if (oc != nc && oc) {
+      int16_t x0 = x + tft.textWidth(oldStr.substring(0, i));
+      int16_t w = tft.textWidth(String((char)oc));
+      if (w < 1) w = 8;
+      tft.fillRect(x0 - padXLeft, y - oh / 2 - padYTop, w + padXLeft + padXRight, oh + padYTop + padYBottom, TFT_BLACK);
+    }
+  }
 }
 
 void displayInit() {
@@ -298,13 +338,7 @@ void displayInit() {
     Serial.println("[DISPLAY] Ошибка инициализации LittleFS (сглаженные шрифты недоступны)");
   }
   
-  // Инициализация подсветки
-  #ifdef TFT_BL
-    pinMode(TFT_BL, OUTPUT);
-    digitalWrite(TFT_BL, LOW); // LOW = включено
-  #endif
-  
-  // Инициализация дисплея
+  // Подсветка: tft.init() выставит TFT_BL в TFT_BACKLIGHT_ON из User_Setup.h (не дублируем уровень здесь).
   tft.init();
   tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
@@ -316,28 +350,30 @@ void displayInit() {
 }
 
 void displayVersion() {
+  tft.unloadFont();
   tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(MC_DATUM);
+  tft.setTextFont(1);
   
-  // Название
-  tft.setTextSize(3);
+  // Название (крупнее, чтобы заставка читалась с расстояния)
+  tft.setTextSize(4);
   tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  tft.drawString("WiFi Clock", 120, 70);
+  tft.drawString("WiFi Clock", 120, 58);
   
   // Версия
-  tft.setTextSize(2);
+  tft.setTextSize(3);
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   String versionStr = "v" + String(FIRMWARE_VERSION);
-  tft.drawString(versionStr, 120, 100);
+  tft.drawString(versionStr, 120, 102);
   
   // Информация о системе
-  tft.setTextSize(1);
+  tft.setTextSize(2);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   String cpuStr = String(ESP.getCpuFreqMHz()) + " MHz";
-  tft.drawString(cpuStr, 120, 125);
+  tft.drawString(cpuStr, 120, 138);
   
   String memStr = String(ESP.getFreeHeap() / 1024) + " KB RAM";
-  tft.drawString(memStr, 120, 140);
+  tft.drawString(memStr, 120, 162);
 }
 
 // Функция displayBootBanner удалена
@@ -439,11 +475,18 @@ void displayTime() {
         Serial.println("[TIME] Используем localtime_r");
       }
     } else {
-      // Время ещё не синхронизировано
+      // Время ещё не синхронизировано — иначе после hideOtaScreen() или заливки чёрным
+      // экран остаётся пустым до появления NTP.
       if (!debugPrinted) {
-        Serial.println("[TIME] Время ещё не синхронизировано, пропускаем отображение");
+        Serial.println("[TIME] Время ещё не синхронизировано — заставка");
       }
       debugPrinted = true;
+      static unsigned long lastNoTimeSplash = 0;
+      unsigned long ms = millis();
+      if (lastNoTimeSplash == 0 || ms - lastNoTimeSplash >= 1500) {
+        displayVersion();
+        lastNoTimeSplash = ms;
+      }
       return;
     }
   }
@@ -456,6 +499,40 @@ void displayTime() {
     debugPrinted = true;
   }
   
+  // Погода была на экране, а теперь выключена или невалидна — иначе остаются «хвосты» от текста/иконок
+  static bool lastWeatherUiShown = false;
+  bool showWeatherUi = weatherEnabled && weather.valid;
+  if (lastWeatherUiShown && !showWeatherUi) {
+    tft.fillRect(125, 68, 115, 105, TFT_BLACK);
+    tft.fillRect(8, 84, 150, 44, TFT_BLACK);
+    tft.fillRect(26, 124, 120, 32, TFT_BLACK);
+    tft.fillRect(0, 144, 240, 96, TFT_BLACK);
+    lastWeatherIcon = "";
+    lastWeatherDesc = "";
+    lastTempStr = "";
+    lastHumStr = "";
+    lastForecastStr = "";
+    lastHumNumStr = "";
+    lastHumStr = "";
+  }
+  lastWeatherUiShown = showWeatherUi;
+  
+  static char lastHourDisplayed[4] = "";
+  static char lastMinDisplayed[4] = "";
+  static char lastSecDisplayed[4] = "";
+  static int16_t lastSecXPos = -1;
+  if (lastHour < 0) lastHourDisplayed[0] = '\0';
+  if (lastMinute < 0) lastMinDisplayed[0] = '\0';
+  if (lastSecond < 0) {
+    lastSecDisplayed[0] = '\0';
+    lastSecXPos = -1;
+  }
+  
+  // Первый кадр часов после заставки/OTA: полная очистка + сброс текста; шрифты Robot ниже через setTimeFont/…
+  if (lastHour < 0) {
+    clearScreenAfterSplashForClockUi();
+  }
+  
   // Время всегда на одной позиции (иконка тревоги заменяет иконку погоды, не перекрывает время)
   int timeY = 30;
   
@@ -463,89 +540,101 @@ void displayTime() {
   setTimeFont(); // Установка шрифта для времени (легко заменить на сглаженный)
   tft.setTextDatum(ML_DATUM); // Выравнивание слева
   
-  // Часы (обновляем только при изменении)
-  // Позиция X=10 для часов (ширина ~50 пикселей для размера 6 с двумя цифрами)
-  if (timeinfo.tm_hour != lastHour) {
-    if (lastHour >= 0) {
-      char hourStr[3];
-      sprintf(hourStr, "%02d", lastHour);
-      tft.setTextColor(TFT_BLACK, TFT_BLACK);
-      tft.drawString(hourStr, 10, timeY);
-    }
-    char hourStr[3];
+  // Часы: затирание только изменившихся цифр (сглаженный шрифт)
+  {
+    char hourStr[4];
     sprintf(hourStr, "%02d", timeinfo.tm_hour);
-    tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    tft.drawString(hourStr, 10, timeY);
-    lastHour = timeinfo.tm_hour;
-  }
-  
-  // Двоеточие (мигает каждые 500мс, обновляется отдельно)
-  // Позиция X=75 после часов (10 + 50 + 15 для увеличенного отступа)
-  static bool colonVisible = true;
-  static unsigned long lastColonToggle = 0;
-  unsigned long nowMillis = millis();
-  if (nowMillis - lastColonToggle >= 500) {
-    colonVisible = !colonVisible;
-    lastColonToggle = nowMillis;
-  }
-  
-
-  
-  if (colonVisible) {
-      // Сначала затираем черный прямоугольник черным (на всякий случай)
-      // Рисуем двоеточие
-      tft.setTextColor(TFT_CYAN, TFT_BLACK);
-      tft.drawString(":", 77, 27);
-    } else {
-      // Закрашиваем область двоеточия черным цветом (прямоугольник точно по размеру двоеточия)
-      tft.fillRect(80, 0 , 10, 45, TFT_BLACK); // Черный прямоугольник вместо двоеточия), colonRectY, 10, 35, TFT_BLACK); // Черный прямоугольник вместо двоеточия
-    }
-  
-  // Минуты (обновляем только при изменении)
-  // Позиция X=111 после двоеточия (75 + 3 + 33 для увеличенного отступа)
-  if (timeinfo.tm_min != lastMinute) {
-    if (lastMinute >= 0) {
-      char minStr[3];
-      sprintf(minStr, "%02d", lastMinute);
-      tft.setTextColor(TFT_BLACK, TFT_BLACK);
-      tft.drawString(minStr, 93, timeY);
-    }
-    char minStr[3];
-    sprintf(minStr, "%02d", timeinfo.tm_min);
-    tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    tft.drawString(minStr, 93, timeY);
-    lastMinute = timeinfo.tm_min;
-  }
-  
-  // Секунды (обновляем только при изменении, шрифтом Robot20, сверху после минут)
-  if (timeinfo.tm_sec != lastSecond) {
-    // Вычисляем позицию секунд: после минут, сверху
-    int minWidth = tft.textWidth("00"); // Ширина минут (примерно)
-    int secX = 93 + minWidth + 5; // Позиция X после минут с отступом 5px
-    int secY = timeY - 15; // Позиция Y выше минут на 15 пикселей
-    
-    // Стираем старые секунды
-    if (lastSecond >= 0) {
-      setDateFont(); // Robot20 для секунд
+    if (strcmp(hourStr, lastHourDisplayed) != 0) {
+      if (lastHourDisplayed[0] != '\0') {
+        setTimeFont();
+        tft.setTextDatum(ML_DATUM);
+        eraseDiffSmoothGlyphs(String(lastHourDisplayed), String(hourStr), 10, timeY, 2, 2, 3, 2);
+      }
+      setTimeFont();
       tft.setTextDatum(ML_DATUM);
-      char secStr[3];
-      sprintf(secStr, "%02d", lastSecond);
-      tft.setTextColor(TFT_BLACK, TFT_BLACK);
-      tft.drawString(secStr, secX, secY);
+      tft.setTextColor(TFT_CYAN, TFT_BLACK);
+      tft.drawString(hourStr, 10, timeY);
+      strcpy(lastHourDisplayed, hourStr);
+      lastHour = timeinfo.tm_hour;
     }
-    
-    // Рисуем новые секунды
-    setDateFont(); // Robot20 для секунд
-    tft.setTextDatum(ML_DATUM);
-    char secStr[3];
-    sprintf(secStr, "%02d", timeinfo.tm_sec);
-    tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    tft.drawString(secStr, secX, secY);
-    
-    lastSecond = timeinfo.tm_sec;
-    
-    // Возвращаем шрифт для времени (Robot60) на случай, если дальше используется
+  }
+  
+  // Двоеточие: первая половина секунды видно, вторая скрыто (как у обычных часов).
+  // Раньше Y=27 при timeY=30 и маленький fillRect — затиралась только нижняя точка.
+  {
+    char hourStrForColon[4];
+    sprintf(hourStrForColon, "%02d", timeinfo.tm_hour);
     setTimeFont();
+    tft.setTextDatum(ML_DATUM);
+    int colonX = 10 + tft.textWidth(hourStrForColon) + 4;
+    int16_t fh = tft.fontHeight();
+    if (fh < 8) fh = 48;
+    int cw = tft.textWidth(":");
+    if (cw < 4) cw = 12;
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    bool colonVisible = (tv.tv_usec < 500000);
+    if (colonVisible) {
+      tft.setTextColor(TFT_CYAN, TFT_BLACK);
+      tft.drawString(":", colonX, timeY);
+    } else {
+      tft.fillRect(colonX - 2, timeY - fh / 2 - 3, cw + 6, fh + 6, TFT_BLACK);
+    }
+  }
+  
+  // Минуты: затирание только изменившихся цифр
+  {
+    char minStr[4];
+    sprintf(minStr, "%02d", timeinfo.tm_min);
+    if (strcmp(minStr, lastMinDisplayed) != 0) {
+      if (lastMinDisplayed[0] != '\0') {
+        setTimeFont();
+        tft.setTextDatum(ML_DATUM);
+        eraseDiffSmoothGlyphs(String(lastMinDisplayed), String(minStr), 93, timeY, 2, 2, 3, 2);
+      }
+      setTimeFont();
+      tft.setTextDatum(ML_DATUM);
+      tft.setTextColor(TFT_CYAN, TFT_BLACK);
+      tft.drawString(minStr, 93, timeY);
+      strcpy(lastMinDisplayed, minStr);
+      lastMinute = timeinfo.tm_min;
+    }
+  }
+  
+  // Секунды (Robot20): затирание только изменившихся цифр
+  {
+    setTimeFont();
+    tft.setTextDatum(ML_DATUM);
+    char minStrForW[4];
+    sprintf(minStrForW, "%02d", timeinfo.tm_min);
+    int minWidth = tft.textWidth(minStrForW);
+    int secX = 93 + minWidth + 5;
+    int secY = timeY - 15;
+    char secStr[4];
+    sprintf(secStr, "%02d", timeinfo.tm_sec);
+    if (strcmp(secStr, lastSecDisplayed) != 0) {
+      if (lastSecDisplayed[0] != '\0') {
+        setDateFont();
+        tft.setTextDatum(ML_DATUM);
+        int16_t oh = tft.fontHeight();
+        if (oh < 8) oh = 22;
+        if (lastSecXPos >= 0 && secX != lastSecXPos) {
+          int sw = tft.textWidth(String(lastSecDisplayed));
+          tft.fillRect(lastSecXPos, secY - oh / 2 - 3, sw + 4, oh + 6, TFT_BLACK);
+        } else {
+          // padXLeft=0: не заходить влево на цифры минут (Robot60), padXRight — сглаживание справа
+          eraseDiffSmoothGlyphs(String(lastSecDisplayed), String(secStr), secX, secY, 0, 2, 3, 2);
+        }
+      }
+      setDateFont();
+      tft.setTextDatum(ML_DATUM);
+      tft.setTextColor(TFT_CYAN, TFT_BLACK);
+      tft.drawString(secStr, secX, secY);
+      strcpy(lastSecDisplayed, secStr);
+      lastSecXPos = secX;
+      lastSecond = timeinfo.tm_sec;
+      setTimeFont();
+    }
   }
   
   // Иконка Wi-Fi справа вверху (горизонтальные полоски, крупнее, от края к центру)
@@ -676,8 +765,11 @@ void displayTime() {
     }
     
     if (lastDateStr.length() > 0) {
-      tft.setTextColor(TFT_BLACK, TFT_BLACK);
-      tft.drawString(lastDateStr, 10, 67);
+      setDateFont();
+      tft.setTextDatum(ML_DATUM);
+      int dh = tft.fontHeight();
+      if (dh < 8) dh = 22;
+      tft.fillRect(6, 67 - dh / 2 - 3, 228, dh + 8, TFT_BLACK);
     }
     
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -695,11 +787,10 @@ void displayTime() {
     int iconSize = 56; // Увеличена с 48 до 56
     int iconY = 75; // Опущено на 7 пикселей (было 46)
     
-    // Устанавливаем шрифт для измерения ширины текста
-    tft.setTextSize(2); // Увеличенный шрифт для подписи
-    
-    // Находим самое длинное описание для правильного центрирования иконки (используем самую длинную сокращённую форму)
-    String longestDesc = "Перем обл"; // Самая длинная сокращённая подпись (заглавные — шрифт без строчных)
+    // Robot20 (как у даты): встроенный шрифт setTextSize() плохо декодирует UTF-8 кириллицу (вместо «П» и т.п.)
+    setDateFont();
+    tft.setTextDatum(ML_DATUM);
+    String longestDesc = "Перем обл";
     int maxTextWidth = tft.textWidth(longestDesc);
     
     // Получаем описание погоды на русском и сокращаем его для компактного отображения
@@ -721,14 +812,15 @@ void displayTime() {
       // Стираем старую подпись (только область подписи)
       int clearTextWidth = maxTextWidth + 14;
       int clearTextX = textCenterX - (maxTextWidth / 2) - 7;
-      int textY = iconY + iconSize - 3; // Под иконкой с небольшим отступом
-      tft.fillRect(clearTextX, textY, clearTextWidth, 24, TFT_BLACK);
+      int textY = iconY + iconSize - 3;
+      int dhClear = tft.fontHeight();
+      if (dhClear < 8) dhClear = 22;
+      tft.fillRect(clearTextX, textY, clearTextWidth, dhClear + 6, TFT_BLACK);
       
       // Рисуем иконку (увеличенную)
       drawWeatherIcon(weather.icon, iconX, iconY, iconSize);
       
-      // Рисуем подпись под иконкой (крупнее)
-      tft.setTextDatum(TC_DATUM); // Выравнивание по центру сверху
+      tft.setTextDatum(TC_DATUM);
       tft.setTextColor(TFT_WHITE, TFT_BLACK);
       tft.drawString(weatherDesc, textCenterX, textY);
       
@@ -741,32 +833,25 @@ void displayTime() {
   if (weatherEnabled && weather.valid) {
     String tempStr = (weather.temperature >= 0 ? "+" : "") + String(weather.temperature, 0);
     if (tempStr != lastTempStr) {
-      setTempFont(); // Установка шрифта для температуры (легко заменить на сглаженный)
-      tft.setTextDatum(ML_DATUM); // Выравнивание слева
-      
-      // Стираем старую температуру, символ градуса и букву C
-      if (lastTempStr.length() > 0) {
-        tft.setTextColor(TFT_BLACK, TFT_BLACK);
-        // Стираем текст, символ градуса и букву C.
-        // Берём максимальную возможную ширину для строки вида "+123" + "°C".
-        // По вертикали захватываем запас сверху/снизу, чтобы не оставалось артефактов.
-        tft.fillRect(8, 84, 150, 44, TFT_BLACK);
-      }
-      
-      // Рисуем новую температуру
       int16_t textX = 10;
-      int16_t textY = 100; // Поднято под дату
+      int16_t textY = 100;
+      setTempFont();
+      tft.setTextDatum(ML_DATUM);
+      if (lastTempStr.length() > 0) {
+        eraseDiffSmoothGlyphs(lastTempStr, tempStr, textX, textY);
+        int16_t oh = tft.fontHeight();
+        if (oh < 8) oh = 28;
+        int16_t oldDegX = textX + tft.textWidth(lastTempStr) + 3;
+        tft.fillRect(oldDegX - 2, textY - oh / 2 - 4, 48, oh + 10, TFT_BLACK);
+      }
       tft.setTextColor(TFT_WHITE, TFT_BLACK);
       tft.drawString(tempStr, textX, textY);
-      
-      // Рисуем символ градуса и букву C после температуры
       int16_t textWidth = tft.textWidth(tempStr);
-      int16_t degreeX = textX + textWidth + 3; // 3 пикселя отступа от текста
-      tft.drawString("°", degreeX, textY); // Символ градуса
+      int16_t degreeX = textX + textWidth + 3;
+      tft.drawString("°", degreeX, textY);
       int16_t degreeWidth = tft.textWidth("°");
-      int16_t cX = degreeX + degreeWidth + 2; // 2 пикселя отступа от символа градуса
+      int16_t cX = degreeX + degreeWidth + 2;
       tft.drawString("C", cX, textY);
-      
       lastTempStr = tempStr;
     }
   }
@@ -786,27 +871,20 @@ void displayTime() {
     String humNumStr = String(weather.humidity);
     String humFullStr = humNumStr + " %";
     if (humFullStr != lastHumStr) {
-      setTempFont(); // Тот же шрифт что и температура
-      tft.setTextDatum(ML_DATUM); // Выравнивание слева
-      
-      // Стираем старую влажность (прямоугольной областью, чтобы не оставалось артефактов)
-      if (lastHumStr.length() > 0) {
-        tft.setTextColor(TFT_BLACK, TFT_BLACK);
-        // Прямоугольник покрывает число и символ %, но не задевает прогноз ниже
-        tft.fillRect(26, 124, 120, 32, TFT_BLACK);
+      setTempFont();
+      tft.setTextDatum(ML_DATUM);
+      if (lastHumNumStr.length() > 0) {
+        eraseDiffSmoothGlyphs(lastHumNumStr, humNumStr, 30, 132);
+        int16_t oh = tft.fontHeight();
+        if (oh < 8) oh = 28;
+        int16_t oldPctX = 30 + tft.textWidth(lastHumNumStr) + 7;
+        tft.fillRect(oldPctX - 2, 132 - oh / 2 - 4, 22, oh + 10, TFT_BLACK);
       }
-      
-      // Рисуем число
       tft.setTextColor(TFT_WHITE, TFT_BLACK);
       tft.drawString(humNumStr, 30, 132);
-      
-      // Рисуем только символ % (без пробела) с небольшим отступом от цифры
       int16_t numWidth = tft.textWidth(humNumStr);
-      
-      // Позиция % - небольшой положительный отступ для визуального разделения
-      // Рисуем только "%" без пробела, чтобы черный фон не перекрывал цифры
-      tft.drawString("%", 30 + numWidth + 7, 132); // +2 пикселя отступа - небольшой промежуток, но компактно (опущено на 2px: было 130)
-      
+      tft.drawString("%", 30 + numWidth + 7, 132);
+      lastHumNumStr = humNumStr;
       lastHumStr = humFullStr;
     }
   }
@@ -816,10 +894,13 @@ void displayTime() {
   // Завтра: левая половина (X от 0 до 120)
   // Послезавтра: правая половина (X от 120 до 240)
   if (weatherEnabled) {
+    // Оба дня прогноза пропали — затереть нижнюю зону (раньше блок не вызывался и оставались старые цифры)
+    if (!(forecast[0].valid || forecast[1].valid) && lastForecastStr.length() > 0) {
+      tft.fillRect(0, 144, 240, 96, TFT_BLACK);
+      lastForecastStr = "";
+    }
     // Отображаем прогноз, если хотя бы один день валиден
     if (forecast[0].valid || forecast[1].valid) {
-      static String lastForecastStr = "";
-      
       // Формируем строку прогноза для проверки изменений
       String forecastStr = "";
       if (forecast[0].valid) {
@@ -1190,8 +1271,7 @@ String getWeatherDescription(const String& iconCode) {
   else return "Облачно";
 }
 
-// Функция для получения сокращённого описания погоды для компактного вывода
-// Используем заглавные первые буквы — в шрифте есть заглавные кириллические (Пн, Пт), строчные могут отображаться как прямоугольник
+// Функция для получения сокращённого описания погоды для компактного вывода (Robot20; при необходимости дополняйте синонимы OWM)
 String getShortWeatherDescription(const String& fullDescription) {
   if (fullDescription == "Ясно") return "Ясно";
   if (fullDescription == "Малооблачно") return "Мал обл";

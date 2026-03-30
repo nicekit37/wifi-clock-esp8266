@@ -1,3 +1,3 @@
 #pragma once
-// Настройки дисплея: единственный источник — вендорная копия TFT_eSPI (см. lib/TFT_eSPI/PATCHES.md).
-#include "TFT_eSPI/User_Setup.h"
+// Редирект на единый include/User_Setup.h
+#include "../include/User_Setup.h"
