@@ -71,9 +71,10 @@ void showOtaScreen(const String& title, const String& line2);
 void drawOtaProgress(int percent);
 void hideOtaScreen();
 
-/** Затирание только изменившихся глифов. padXLeft/Right — слева/справа от глифа; у секунд padXLeft=0, чтобы не затирать минуты. */
+/** Затирание только изменившихся глифов. clipBottomY>=0: не рисовать ниже этой Y (первая строка, которую нельзя затирать). */
 void eraseDiffSmoothGlyphs(const String& oldStr, const String& newStr, int16_t x, int16_t y,
-  int8_t padXLeft = 2, int8_t padXRight = 2, int8_t padYTop = 5, int8_t padYBottom = 5);
+  int8_t padXLeft = 2, int8_t padXRight = 2, int8_t padYTop = 5, int8_t padYBottom = 5,
+  int16_t clipBottomY = -1);
 
 // Структура данных погоды
 struct WeatherData {
@@ -107,7 +108,7 @@ struct AlertData {
 extern AlertData alert;
 
 // Константы
-#define FIRMWARE_VERSION "1.0.23"
+#define FIRMWARE_VERSION "1.0.25"
 
 // Функции
 /** После заставки/встроенного GLCD: сброс textFont/textSize перед loadFont(Robot*). */

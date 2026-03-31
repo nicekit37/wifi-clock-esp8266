@@ -309,7 +309,7 @@ void hideOtaScreen() {
 }
 
 void eraseDiffSmoothGlyphs(const String& oldStr, const String& newStr, int16_t x, int16_t y,
-  int8_t padXLeft, int8_t padXRight, int8_t padYTop, int8_t padYBottom) {
+  int8_t padXLeft, int8_t padXRight, int8_t padYTop, int8_t padYBottom, int16_t clipBottomY) {
   tft.setTextDatum(ML_DATUM);
   int16_t oh = tft.fontHeight();
   if (oh < 8) oh = 24;
@@ -323,7 +323,18 @@ void eraseDiffSmoothGlyphs(const String& oldStr, const String& newStr, int16_t x
       int16_t x0 = x + tft.textWidth(oldStr.substring(0, i));
       int16_t w = tft.textWidth(String((char)oc));
       if (w < 1) w = 8;
-      tft.fillRect(x0 - padXLeft, y - oh / 2 - padYTop, w + padXLeft + padXRight, oh + padYTop + padYBottom, TFT_BLACK);
+      int16_t yTop = y - oh / 2 - padYTop;
+      int16_t rectH = oh + padYTop + padYBottom;
+      if (clipBottomY >= 0) {
+        int16_t maxH = clipBottomY - yTop;
+        if (maxH < 1) {
+          continue;
+        }
+        if (rectH > maxH) {
+          rectH = maxH;
+        }
+      }
+      tft.fillRect(x0 - padXLeft, yTop, w + padXLeft + padXRight, rectH, TFT_BLACK);
     }
   }
 }
@@ -590,7 +601,8 @@ void displayTime() {
       if (lastMinDisplayed[0] != '\0') {
         setTimeFont();
         tft.setTextDatum(ML_DATUM);
-        eraseDiffSmoothGlyphs(String(lastMinDisplayed), String(minStr), 93, timeY, 2, 2, 2, 0);
+        // clipBottomY=56: не затирать строку дней (верх ~56 при dateRowY=67); полная перерисовка minStr снизу добивает
+        eraseDiffSmoothGlyphs(String(lastMinDisplayed), String(minStr), 93, timeY, 2, 2, 2, 2, 56);
       }
       setTimeFont();
       tft.setTextDatum(ML_DATUM);
